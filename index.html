@@ -1,0 +1,186 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Real-time Weather and Anomaly Data</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/3.1.3/socket.io.js"></script>
+</head>
+
+<body>
+
+<h3>Location: <span id="location"></span></h3>
+<p>Latitude: <span id="lat"></span></p>
+<p>Longitude: <span id="long"></span></p>
+<p>
+  Set x-axis range:
+  <label for="startTime">Start Time:</label>
+  <input type="datetime-local" id="startTime">
+
+  <label for="endTime">End Time:</label>
+  <input type="datetime-local" id="endTime">
+
+  <button onclick="updateXAxisRange()">Set Range</button>
+</p>
+<p>
+  Set Score Threshold:
+  <input type="number" id="scoreThreshold" min="0" max="1" step="0.01" value="0.5">
+  <button onclick="updateScoreThreshold()">Set Threshold</button>
+</p>
+
+<div id="weather-div"></div>
+<div id="anomaly-div"></div>
+
+<script>
+    function updateXAxisRange() {
+    let startTime = new Date(document.getElementById('startTime').value);
+    let endTime = new Date(document.getElementById('endTime').value);
+
+    // Ensure start time is before end time
+    if (startTime >= endTime) {
+        alert("Start time should be before end time.");
+        return;
+    }
+
+    let updatedLayout = {
+        xaxis: {
+            range: [startTime, endTime]
+        }
+    };
+
+    Plotly.relayout('weather-div', updatedLayout);
+    Plotly.relayout('anomaly-div', updatedLayout);
+}
+
+    // Initialize weather traces
+    let temperatureTrace = {
+        x: [],
+        y: [],
+        mode: 'lines+markers',
+        name: 'Temperature (F)'
+    };
+
+    let dewpointTrace = {
+        x: [],
+        y: [],
+        mode: 'lines+markers',
+        name: 'Dewpoint'
+    };
+
+    let probabilityOfPrecipitationTrace = {
+        x: [],
+        y: [],
+        mode: 'lines+markers',
+        name: 'Probability of Precipitation'
+    };
+
+    let relativeHumidityTrace = {
+        x: [],
+        y: [],
+        mode: 'lines+markers',
+        name: 'Relative Humidity'
+    };
+
+    let windSpeedTrace = {
+        x: [],
+        y: [],
+        mode: 'lines+markers',
+        name: 'Wind Speed'
+    };
+
+    let layoutWeather = {
+    title: 'Weather Details vs. Time'
+    };
+
+
+    Plotly.newPlot('weather-div', [temperatureTrace, dewpointTrace, probabilityOfPrecipitationTrace, relativeHumidityTrace, windSpeedTrace], layoutWeather);
+
+    // Initialize anomaly trace
+    let weightedScoreTrace = {
+        x: [],
+        y: [],
+        mode: 'lines+markers',
+        name: 'Weighted Score'
+    };
+
+    let thresholdLine = {
+    x: [],
+    y: [],
+    mode: 'lines',
+    name: 'Threshold',
+    line: {color: 'red'}
+
+    };
+
+    let layoutAnomaly = {
+        title: 'Anomaly Score vs. Time'
+    };
+
+    Plotly.newPlot('anomaly-div', [weightedScoreTrace, thresholdLine], layoutAnomaly);
+
+
+    // Establish WebSocket connection
+    const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+    // Update plots upon receiving new data
+    function updateTrace(trace, xValue, yValue, textValue) {
+    const index = trace.x.findIndex(time => time.getTime() === xValue.getTime());
+    if (index !== -1) {
+        // Timestamp exists, override the y data and text
+        trace.y[index] = yValue;
+        if (trace.text) {
+            trace.text[index] = textValue;
+        }
+    } else {
+        // Timestamp doesn't exist, push new data
+        trace.x.push(xValue);
+        trace.y.push(yValue);
+        if (!trace.text) {
+            trace.text = [];
+        }
+        trace.text.push(textValue);
+    }
+}
+
+    function updateScoreThreshold() {
+    let thresholdValue = parseFloat(document.getElementById('scoreThreshold').value);
+
+    // Check if the value is valid
+    if (isNaN(thresholdValue) || thresholdValue < 0 || thresholdValue > 1) {
+        alert("Please enter a valid threshold between 0 and 1.");
+        return;
+    }
+
+    // Update the threshold line
+    thresholdLine.x = weightedScoreTrace.x; // Assuming you want the threshold to span the entire x-axis
+    thresholdLine.y = Array(weightedScoreTrace.x.length).fill(thresholdValue);
+
+    Plotly.redraw('anomaly-div');
+}
+
+
+
+    socket.on('update_data', function(data) {
+    let currentStart = new Date(data.start);
+
+    updateTrace(temperatureTrace, currentStart, data.temperature, data.summary);
+    updateTrace(dewpointTrace, currentStart, data.dewpoint, data.summary);
+    updateTrace(probabilityOfPrecipitationTrace, currentStart, data.probabilityOfPrecipitation, data.summary);
+    updateTrace(relativeHumidityTrace, currentStart, data.relativeHumidity, data.summary);
+    updateTrace(windSpeedTrace, currentStart, data.windSpeed, data.summary);
+    updateTrace(weightedScoreTrace, currentStart, data.weighted_score);
+
+    // Set the location, latitude, and longitude
+    document.getElementById('location').textContent = data.location;
+    document.getElementById('lat').textContent = data.latitude;
+    document.getElementById('long').textContent = data.longitude;
+
+    Plotly.redraw('weather-div');
+    Plotly.redraw('anomaly-div');
+});
+
+</script>
+
+</body>
+</html>
